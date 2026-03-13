@@ -1,7 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const Appointment = require('../models/Appointment');
+const Doctor = require('../models/doctor');
 const emailService = require('../services/emailService');
+
+function formatDoctorName(rawName) {
+  if (!rawName) return '';
+  const trimmed = String(rawName).trim();
+  return /^Dr\.?\s/i.test(trimmed) ? trimmed : `Dr. ${trimmed}`;
+}
 
 // ====================================
 // GET ROUTES
@@ -242,6 +249,7 @@ router.post('/', async (req, res) => {
       dentist,
       notes
     } = req.body;
+    const doctorId = req.body.doctorId || req.body.doctor;
 
     // Validate required fields
     if (!patientName || !patientPhone || !patientEmail || !date || !time || !service) {
@@ -266,6 +274,17 @@ router.post('/', async (req, res) => {
     }
 
     // Create appointment
+    let doctorDoc = null;
+    if (doctorId) {
+      doctorDoc = await Doctor.findById(doctorId).select('-password -__v').catch(() => null);
+    }
+    if (!doctorDoc && dentist) {
+      const normalized = dentist.replace(/^Dr\.?\s*/i, '').trim();
+      if (normalized) {
+        doctorDoc = await Doctor.findOne({ name: new RegExp(`^${normalized}$`, 'i') }).select('-password -__v').catch(() => null);
+      }
+    }
+
     const appointment = new Appointment({
       patientName,
       patientPhone,
@@ -273,22 +292,27 @@ router.post('/', async (req, res) => {
       date: new Date(date),
       time,
       service,
-      dentist: dentist || 'Dr. Smith',
+      dentist: doctorDoc ? formatDoctorName(doctorDoc.name) : (dentist || 'Dr. Smith'),
       notes: notes || '',
-      status: 'scheduled'
+      status: 'scheduled',
+      doctor: doctorDoc?._id || null,
     });
 
     await appointment.save();
 
     // Send confirmation email
     try {
-      await emailService.sendAppointmentConfirmation(
-        appointment,
-        {
-          name: patientName,
-          email: patientEmail
-        }
-      );
+      const doctorPayload = doctorDoc
+        ? {
+            name: formatDoctorName(doctorDoc.name),
+            specialization: doctorDoc.specialization,
+            qualification: doctorDoc.qualification,
+            experience: doctorDoc.experience,
+            consultationFee: doctorDoc.consultationFee,
+            phone: doctorDoc.phone,
+          }
+        : { name: appointment.dentist };
+      await emailService.sendAppointmentConfirmation(appointment, doctorPayload);
     } catch (emailError) {
       console.error('Failed to send confirmation email:', emailError);
       // Don't fail the appointment creation if email fails

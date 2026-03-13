@@ -500,7 +500,7 @@ Cancellation flow:
   async checkAvailability(date, doctorId = null) {
     const slots  = ['09:00','10:00','11:00','13:00','14:00','15:00','16:00'];
     const query  = { date: new Date(date), status: 'scheduled' };
-    if (doctorId) query.doctorId = doctorId;
+    if (doctorId) query.doctor = doctorId;
     const booked    = await Appointment.find(query);
     const taken     = booked.map(a => a.time);
     const available = slots.filter(s => !taken.includes(s));
@@ -522,7 +522,7 @@ Cancellation flow:
 
     const existing = await Appointment.findOne({
       date: new Date(data.date), time: data.time, status: 'scheduled',
-      ...(data.doctorId ? { doctorId: data.doctorId } : {})
+      ...(data.doctorId ? { doctor: data.doctorId } : {})
     });
     if (existing) return { success: false, message: 'Slot unavailable. Choose another time.' };
 
@@ -543,13 +543,24 @@ Cancellation flow:
       service: data.service,
       notes:   data.notes || '',
       status:  'scheduled',
-      doctorId: doctor?._id || null,
-      dentist:  doctor ? `Dr. ${doctor.name}` : (data.doctorName || 'Dr. Smith'),
+      doctor:  doctor?._id || null,
+      dentist:  doctor ? `Dr. ${doctor.name.replace(/^Dr\.?\s*/i, '')}` : (data.doctorName || 'Dr. Smith'),
     });
     await appt.save();
 
+    const doctorPayload = doctor
+      ? {
+          name: appt.dentist,
+          consultationFee: doctor.consultationFee || doctor.fee,
+          specialization: doctor.specialization,
+          qualification: doctor.qualification,
+          experience: doctor.experience,
+          phone: doctor.phone,
+        }
+      : { name: appt.dentist };
+
     try {
-      await emailService.sendAppointmentConfirmation(appt, { name: data.patientName, email: cleanedEmail });
+      await emailService.sendAppointmentConfirmation(appt, doctorPayload);
     } catch (e) { console.warn('⚠️ Patient email failed:', e.message); }
 
     if (doctor?.email) {

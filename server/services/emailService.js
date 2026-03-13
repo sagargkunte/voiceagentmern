@@ -66,7 +66,7 @@ async function sendWithRetry(mailOptions, retries = 3) {
 
 // ── Patient confirmation email ─────────────────────────────────────────────
 async function sendAppointmentConfirmation(appointment, doctor = null) {
-  const doctorName = doctor?.name || appointment.doctorName || 'Our Doctor';
+  const doctorName = doctor?.name || appointment.dentist || appointment.doctorName || 'Our Doctor';
   const fee        = doctor?.consultationFee || doctor?.fee || 500;
 
   const patient = {
@@ -75,11 +75,13 @@ async function sendAppointmentConfirmation(appointment, doctor = null) {
     phone: appointment.patientPhone || '',
   };
 
+  const doctorPayload = { ...(doctor || {}), name: doctorName, consultationFee: fee };
+
   let pdfBuffer = null;
   try {
     pdfBuffer = await generateAppointmentPDF(
       appointment,
-      { ...doctor, name: doctorName, consultationFee: fee },
+      doctorPayload,
       patient
     );
   } catch (err) {
@@ -193,12 +195,18 @@ async function sendDoctorAppointmentNotification(appointment, doctor, patient) {
 
   const fee = doctor?.consultationFee || doctor?.fee || 500;
 
+  const patientInfo = {
+    name:  patient?.name  || appointment.patientName  || 'N/A',
+    email: patient?.email || appointment.patientEmail || 'N/A',
+    phone: patient?.phone || appointment.patientPhone || 'N/A',
+  };
+
   let pdfBuffer = null;
   try {
     pdfBuffer = await generateAppointmentPDF(
       appointment,
       { ...doctor, consultationFee: fee },
-      patient
+      patientInfo
     );
   } catch (err) {
     console.error('PDF generation error (doctor):', err.message);
@@ -207,7 +215,7 @@ async function sendDoctorAppointmentNotification(appointment, doctor, patient) {
   const mailOptions = {
     from:    FROM,
     to:      doctor.email,
-    subject: `📅 New Appointment: ${patient?.name || appointment.patientName} — ${formatDate(appointment.date)} at ${appointment.time}`,
+    subject: `📅 New Appointment: ${patientInfo.name} — ${formatDate(appointment.date)} at ${appointment.time}`,
     html: `
 <!DOCTYPE html>
 <html>
@@ -228,16 +236,16 @@ async function sendDoctorAppointmentNotification(appointment, doctor, patient) {
     </div>
 
     <div style="padding:32px 40px;">
-      <h2 style="color:#065F46;font-size:20px;margin:0 0 6px;">New appointment booked, ${doctor.name}!</h2>
-      <p style="color:#6B7280;font-size:14px;margin:0 0 24px;">Sarah has confirmed a new patient appointment. Here are the full details:</p>
+      <h2 style="color:#065F46;font-size:20px;margin:0 0 6px;">New appointment booked</h2>
+      <p style="color:#6B7280;font-size:14px;margin:0 0 24px;">Patient details:</p>
 
       <div style="background:#F0FDF4;border:1px solid #A7F3D0;border-radius:12px;padding:20px 24px;margin-bottom:20px;">
         <p style="color:#065F46;font-weight:700;font-size:13px;margin:0 0 12px;">👤 Patient Details</p>
         <table width="100%" cellspacing="0">
           ${[
-            ['NAME',  patient?.name  || appointment.patientName  || 'N/A'],
-            ['EMAIL', patient?.email || appointment.patientEmail || 'N/A'],
-            ['PHONE', patient?.phone || appointment.patientPhone || 'N/A'],
+            ['NAME',  patientInfo.name],
+            ['EMAIL', patientInfo.email],
+            ['PHONE', patientInfo.phone],
           ].map(([l, v]) => `
           <tr>
             <td style="color:#9CA3AF;font-size:11px;font-weight:700;letter-spacing:0.08em;padding:5px 0;width:80px;">${l}</td>
@@ -258,12 +266,6 @@ async function sendDoctorAppointmentNotification(appointment, doctor, patient) {
           <td style="padding:11px 16px;font-size:13px;color:#065F46;font-weight:600;">${v}</td>
         </tr>`).join('')}
       </table>
-
-      <div style="background:#065F46;border-radius:12px;padding:18px 24px;margin-bottom:24px;">
-        <p style="color:rgba(255,255,255,0.55);font-size:11px;font-weight:700;letter-spacing:0.1em;margin:0 0 4px;">YOUR CONSULTATION FEE</p>
-        <p style="color:#6EE7B7;font-size:26px;font-weight:700;margin:0;">₹${fee.toLocaleString('en-IN')}</p>
-        <p style="color:rgba(255,255,255,0.4);font-size:11px;margin:4px 0 0;">Collectible at clinic on the day of appointment</p>
-      </div>
 
       <p style="color:#6B7280;font-size:13px;margin:0;">📎 The full appointment order PDF is attached for your records.</p>
     </div>
