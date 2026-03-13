@@ -572,11 +572,22 @@ Cancellation flow:
     }
 
     const clinicAddr = doctor?.location?.address || doctor?.address || '';
+    const serviceDurations = {
+      'General Checkup': '20 minutes',
+      'Teeth Cleaning': '30 minutes',
+      'Root Canal': '60 minutes',
+      'Dental Crowns': '45 minutes',
+      'Teeth Whitening': '40 minutes',
+      'Emergency': '30 minutes',
+      'Crown': '45 minutes',
+      'Whitening': '40 minutes',
+    };
+    const duration = serviceDurations[data.service] || '30 minutes';
     return {
       success: true,
       appointmentId: appt._id.toString(),
       clinicAddress: clinicAddr,
-      message: `${data.service} booked for ${data.date} at ${data.time} with ${appt.dentist}${clinicAddr ? ` at ${clinicAddr}` : ''}. Confirmation sent to ${cleanedEmail}.`
+      message: `${data.service} booked for ${data.date} at ${data.time} with ${appt.dentist}${clinicAddr ? ` at ${clinicAddr}` : ''}. Estimated duration is ${duration}. Confirmation sent to ${cleanedEmail}.`
     };
   }
 
