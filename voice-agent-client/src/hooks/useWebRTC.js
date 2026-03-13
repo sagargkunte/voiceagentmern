@@ -19,6 +19,8 @@ export const useWebRTC = () => {
   const animationFrameRef = useRef(null);
   const isSpeakingRef     = useRef(false);
   const isMutedRef        = useRef(false);
+  const bargeInRef        = useRef(false);
+  const bargeFramesRef    = useRef(0);
 
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
@@ -67,7 +69,6 @@ export const useWebRTC = () => {
     });
 
     socketRef.current.on('transcript', (data) => {
-      if (isSpeakingRef.current) return;
       setTranscript(data.text);
       setIsListening(!data.isFinal);
     });
@@ -101,9 +102,9 @@ export const useWebRTC = () => {
     setIsSpeaking(speaking);
     socketRef.current?.emit('sarah-speaking', speaking);
 
-    if (speaking) {
-      streamRef.current?.getAudioTracks().forEach(t => { t.enabled = false; });
-    } else {
+    if (!speaking) {
+      bargeInRef.current = false;
+      bargeFramesRef.current = 0;
       if (!isMutedRef.current) {
         streamRef.current?.getAudioTracks().forEach(t => { t.enabled = true; });
       }
@@ -193,8 +194,24 @@ export const useWebRTC = () => {
 
       processorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
       processorRef.current.onaudioprocess = (event) => {
-        if (!socketRef.current?.connected || isSpeakingRef.current) return;
+        if (!socketRef.current?.connected) return;
         const float32 = event.inputBuffer.getChannelData(0);
+        // If Sarah is speaking, only allow audio after a real barge-in.
+        if (isSpeakingRef.current && !bargeInRef.current) {
+          let sum = 0;
+          for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
+          const rms = Math.sqrt(sum / float32.length);
+          if (rms > 0.02) bargeFramesRef.current += 1;
+          else bargeFramesRef.current = 0;
+
+          if (bargeFramesRef.current >= 3) {
+            bargeInRef.current = true;
+            console.log('🛑 Barge-in detected — stopping TTS');
+            window.speechSynthesis.cancel();
+            setSpeaking(false);
+          }
+          return;
+        }
         const int16   = new Int16Array(float32.length);
         for (let i = 0; i < float32.length; i++) {
           const s = Math.max(-1, Math.min(1, float32[i]));
